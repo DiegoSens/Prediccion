@@ -1,0 +1,337 @@
+---
+title: 'Caso Práctico 01: Salarios NBA'
+author: "Diego Senso González"
+date: "28/10/2020"
+output:
+  html_document:
+    theme: readable
+    df_print: paged
+---
+## Objetivo del estudio
+
+El presente informe tiene como objetivo realizar un modelo de regresión que 
+sea capaz de realizar una predicción sobre el salario que debe ganar un 
+jugador de la NBA a partir de las variables ofrecidas. Para ello, en primer
+lugar se estimarán una serie de modelos de regresión, diferentes entre sí en
+cuanto a las variables incluidas y excluídas del modelo. A continuación,
+se realizarán los diferentes contrastes propuestos. Finalmente, se verá cuál
+es el mejor modelo que se puede obtener, para finalmente ponerlo a predecir y
+observar el mejor o peor desempeño de este.
+
+Para comenzar, se procede a cargar las librerías necesarias para el estudio.
+
+## Carga de librerías
+
+```{r setup, warning=FALSE, echo=FALSE, message=FALSE}
+rm(list = ls())
+
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+```
+
+## Importar y observar los datos
+
+En este punto, se importa el archivo csv con los datos necesarios.
+Posteriormente se observa el dataset y se obtienen las principales
+medidas de cada una de las variables gracias a la función "summary".
+
+```{r echo=FALSE}
+datos_nba <- read.csv("nba.csv")
+datos_nba
+dim(datos_nba)
+summary(datos_nba)
+```
+
+Como se puede observar, el dataset "datos_nba" cuenta con un total de 485 observaciones (cada una representando el registro de un jugador), y 28 variables (siendo de estas en su mayoría numéricas pero contando con alguna categórica, como el equipo del jugador "Tm" o el país "NBA_Country", entre otras).
+
+## Eliminación de NAs
+
+Antes de comenzar a construir los modelos y realizar los contrastes, se procede a eliminar los NAs a fin de que no supongan un problema después. Se ha procedido a eliminar los NAs.
+
+```{r pressure, echo=FALSE}
+datos_nba <- na.omit(datos_nba)
+```
+
+
+## Jugadores duplicados
+
+Es necesario también estudiar si existen registros duplicados, algo que podría alterar los resultados. Para ello, vemos la cantidad de duplicados que hay en la muestra. Existían 2 duplicados, por lo que se ha procedido a eliminarlos. El dataset se queda con 481 observaciones tras eliminar NAs y valores repetidos.
+
+```{r echo=FALSE, eval=FALSE}
+duplicated(datos_nba)
+nrow(datos_nba[duplicated(datos_nba$Player),])
+datos_nba <- datos_nba[!duplicated(datos_nba$Player),]
+
+```
+
+
+## Gráficos de comparación entre variables
+
+De cara a ver cómo se comportan diferentes variables con respecto al salario, que es la variable que se quiere estudiar, vamos a graficar algunas de ellas.
+
+```{r echo=FALSE}
+ggplot(datos_nba, aes(NBA_DraftNumber, Salary)) +
+  geom_point(color = "purple")
+
+ggplot(datos_nba, aes(Tm, Salary)) +
+  geom_point(color = "green")
+
+ggplot(datos_nba, aes(Age, Salary)) +
+  geom_point(color = "blue")
+
+ggplot(datos_nba, aes(MP, Salary)) +
+  geom_point(color = "red")
+
+ggplot(datos_nba, aes(G, Salary)) +
+  geom_point(color = "yellow")
+
+ggplot(datos_nba, aes(PER, Salary)) +
+  geom_point(color = "blue")
+
+```
+
+En los gráficos puede intuirse la relación de alguna de las variables con el salario. A simple vista, parece que variables como los minutos o partidos jugados sí influyen, ya que hay mayor cantidad de observaciones con un salario alto a medida que aumentan esas dos variables.
+
+En cuanto a la edad, los salarios más elevados parecen incluirse en una franja de edad que no correpondería ni a jugadores muy jóvenes ni a muy veteranos. El número del draft sí que parece tener su influencia a la inversa, es decir, mayores salarios a jugadores con un número del draft más cercano a 1.
+
+Sobre las variables PER y el equipo del jugador no parecen sacarse resultados concluyentes. La mayoría de los equipos tienen tanto salarios bajos como alguno más elevado, mientras que los valores del PER están muy concentrados y casi todos los jugadores están en una franja muy concreta.
+
+Esto se trata simplemente de una apreciación inicial, ya que la validez o no de las variables será determinada al construir el modelo y realizar los diferentes contrastes.
+
+## Modelo de regresión
+
+Para comenzar, constuimos tres modelos de regresión diferentes en los que seleccionamos unas variables u otras. El objetivo es ver cuáles son representativas y elegir un buen modelo para comenzar a realizar los diferentes contrastes.
+
+
+```{r echo=FALSE}
+regres01 = lm(Salary~.-Player, data = datos_nba)
+summary(regres01)
+
+regres02 = lm(Salary~.-Player -NBA_Country-Tm, data = datos_nba)
+summary(regres02)
+
+regres03 = lm(Salary~NBA_DraftNumber+Age+G+MP, data = datos_nba)
+summary(regres03)
+```
+En regres01, simplemente sacamos del modelo la variable "Player". Se puede observar que existen cuatro variables que son claramente explicativas. Como el equipo al que pertenece el jugador no ofrece demasiada información, se va a suprimir esta variable en regres02. Adicionalmente, eliminamos el país del que proviene el jugador, porque pese a que algunos países tiene un p-valor inferior al 5%, en la mayoría de casos no parece significativo.
+
+En regres02, se observa que siguen existiendo cuatro variables buenas. El R ajustado crece.
+
+En regres03 se realiza un modelo solo con las cuatro variables que han resultado significativas. Pese a incluir solo estas, el modelo pierde capacidad explicativa. Por esta circunstancia, el modelo elegido para continuar aplicando los contrastes será el regres02.
+
+
+## Contraste de normalidad - QQPLOT
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+library(car)
+qqPlot(regres02, labels=row.names(datos_nba), id.method="identify",
+       simulate=TRUE, main="Q-Q Plot")
+```
+
+Como se puede observar, la gráfica se asemeja a la representación de una distribución normal. Debido a esto, realizamaremos posteriormente el contraste Jarque-Bera para contrastar, numéricamente si esto es así.
+
+## Histograma + densidad + normal + rug
+
+```{r echo=FALSE}
+residplot <- function(fit, nbreaks=10) {
+  z <- rstudent(fit)
+  hist(z, breaks=nbreaks, freq=FALSE,
+       xlab="Studentized Residual",
+       main="Distribution of Errors")
+  rug(jitter(z), col="brown")
+  curve(dnorm(x, mean=mean(z), sd=sd(z)),
+        add=TRUE, col="blue", lwd=2)
+  lines(density(z)$x, density(z)$y,
+        col="red", lwd=2, lty=2)
+  legend("topright",
+         legend = c( "Normal Curve", "Kernel Density Curve"),
+         lty=1:2, col=c("blue","red"), cex=.7)
+}
+
+residplot(regres02)
+
+```
+
+El presente histograma representa la distribución de los errores, comparando con la forma de una distribución normal. Gracias al contraste posterior, se analizará si la distribución es una normal de forma numérica.
+
+## Jarque-Bera
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+
+library(fBasics)
+library(akima)
+
+vResid <- resid(regres01)
+jbTest(vResid)
+```
+
+De acuerdo con los resultado del contraste, cabe rechazar la hipótesis nula y afirmar que la presente distribución no es una normal.
+
+## Shapiro-Wilk
+
+```{r echo=FALSE}
+shapiro.test(vResid)
+```
+
+El test de Shapiro-Wilk llega a la misma conclusión. La ditribución no es una normal, rechazando la hipótesis nula.
+
+## Linealidad
+
+```{r echo=FALSE}
+crPlots(regres02)
+```
+En este aspecto, cabe interpretar que si la línea de color morado se separa mucho de la azul, podría indicar la existencia de problemas de linealidad. Gracias al test siguiente, de validación global, podremos comprobar si efecticamente es un modelo lineal o no.
+
+
+## Validación global
+
+```{r echo=FALSE, warning=FALSE}
+library(gvlma)
+gvmodel <- gvlma(regres02)
+summary(gvmodel)
+```
+
+El test de validación global permite contrastar todas las hipótesis a la vez. De los resultados se extrae que salvo la de la heterocedasticidad, no satisface ninguna de las otras hipótesis. Al ser todos los contrastes no satsfechos a excepción del último, el resultado de este test arroja la interpretación de que el presente modelo no es lineal.
+
+## Test de outliers
+
+```{r echo=FALSE}
+outlierTest(regres02)
+```
+En este caso se rechaza la hipótesis, por lo cual no hay valores atípicos.
+
+
+## Valores extremos
+
+```{r echo=FALSE, warning=FALSE}
+hat.plot <- function(fit) {
+  p <- length(coefficients(fit))
+  n <- length(fitted(fit))
+  plot(hatvalues(fit), main="Index Plot of Hat Values")
+  abline(h=c(2,3)*p/n, col="red", lty=2)
+  identify(1:n, hatvalues(fit), names(hatvalues(fit)))
+}
+hat.plot(regres02)
+```
+
+En este gráfico se puede observar la existencia de valores extremos, es decir, valores que se encuentran dos o tres veces por encima de la media.
+
+## Valores influyentes 
+
+Además de los extremos, se estudian también los valores influyentes de forma gráfica.
+
+```{r echo=FALSE, warning=FALSE}
+cutoff <- 4/(nrow(datos_nba)-length(regres02$coefficients)-2)
+plot(regres02, which=4, cook.levels=cutoff)
+abline(h=cutoff, lty=2, col="red")
+
+avPlots(regres02, ask=FALSE, id.method="identify")
+
+influencePlot(regres02, id.method="identify", main="Influence Plot", 
+              sub="Circle size is proportial to Cook's Distance" )
+```
+
+## Interacción
+
+```{r echo=FALSE}
+regresInter <- lm(Salary~NBA_DraftNumber*	Age*	G*	MP* PER*
+                    USG.,data=datos_nba)
+summary(regresInter)
+```
+
+Se seleccionan algunas variables para observar si alguna combinación resultara tener buena capacidad explicativa. A juzgar por los resultados, parece que ninguna combinación sería plenamente buena para el modelo.
+
+## Polinomios
+
+```{r echo=FALSE}
+regresPoly = lm(Salary~.-Player-NBA_Country-Tm+I(NBA_DraftNumber^2)+I(NBA_DraftNumber^3),data=datos_nba)
+summary(regresPoly)
+```
+
+La variable introducida en formato polinomio no resulta explicativa.
+
+## Comparación de modelos
+
+Ahora es necesario realizar los diferentes contrastes disponibles para elegir el mejor modelo que pueda conseguirse con la información disponible. Se realizará el primer contraste con los métodos AIC y BIC.
+
+```{r echo=FALSE}
+AIC(regres01,regres02,regres03)
+BIC(regres01,regres02,regres03)
+```
+
+Tanto el contraste AIC como el BIC ofrecen el mejor modelo, que es el que cuente con un AIC o BIC más pequeño. En este caso, el AIC determina que el mejor modelo era con el que se estaba trabajando hasta ahora, regres02. Sin embargo, el BIC no coincide ya que indica que el mejor es el regres03.
+
+Tras esta solución poco concluyente, lo mejor es continuar realizando el resto de contrastes para comparar modelos, y llegar al objetivo de conseguir el mejor modelo posible.
+
+## Método de selección Best Subset
+
+```{r echo=FALSE}
+library (leaps)
+regfit.full=regsubsets(Salary~.-Player-NBA_Country-Tm,datos_nba)
+reg.summary <- summary(regfit.full)
+reg.summary
+reg.summary$rss
+```
+
+El método Best Subset consiste en estimar las posibles regresiones con diferentes combinaciones de variables. "reg.summary$rss" ofrece una serie de valores, siendo el más pequeño es el que se sitúa en la posición 8. Si observamos los resultados del contraste, resulta que ofrece da una combinación de variables que no coincidía con ninguno de los tres modelos creados inicialmente. Dado que este método de selección está determinando que esa es la mejor combinación, vamos a crear un modelo, regres04, con esas mismas variables, con el fin de observar si el modelo mejor su capacidad explicativa.
+
+
+## Nuevo modelo - regres04
+
+```{r echo=FALSE}
+regres04 = lm(Salary~NBA_DraftNumber+Age+G+MP+DRB.+USG.+OWS+VORP, data = datos_nba)
+summary(regres04)
+```
+Se ha creado un nuevo modelo basado en los resultados del Best Subset. Como se puede observar, el R ajustado del modelo crece con respecto a los tres modelos anteriores, hasta 0.5327. Adicionalmente, las variables "DRB." y "VORP" pasan a ser significativas, cuando anteriormente en otros modelos no lo eran.
+
+## Nueva comparación
+
+Realizamos la comparación de nuevo, ahora introduciendo el nuevo modelo y constrastándolo con el AIC y el BIC con respecto a los tres modelos anteriores.
+
+```{r echo=FALSE}
+AIC(regres01,regres02,regres03, regres04)
+BIC(regres01,regres02,regres03, regres04)
+```
+
+Como se puede observar, aquí los resultados sí coinciden. Tanto el AIC como el BIC determinan que el regres04 es el mejor modelo hasta ahora. A partir de aquí continuamos con el modelo regres04. Aplicamos el Backward Stepwise, otra de las técnicas de selección de modelos disponibles.
+
+## Backward Stepwise
+```{r echo=FALSE, message=FALSE}
+library(MASS)
+
+stepAIC(regres02, direction="backward")
+
+regfit.bwd=regsubsets(Salary~.-Player,datos_nba,method ="backward")
+summary (regfit.bwd)
+```
+
+Cambiamos la dirección a "both".
+
+```{r echo=FALSE}
+stepAIC(regres02, direction="both")
+```
+Al realizar este contraste en la dirección "both", el resultado se compone de muchos modelos creados a partir de seleccionar unas variables u otras. Dichos modelos salen ordenados de mayor a menor AIC. Como se ha comentado anteriormente, debemos perseguir el AIC más bajo para conseguir el mejor modelo. Por ello, se va a seleccionar el modelo con el AIC más bajo de los que han salido en este contraste para probar si la combinación de variables propuesta ofrece un modelo mejor que el regres04, el que se había creado en último lugar.
+
+
+## Construcción del modelo final (regresfinal)
+
+```{r echo=FALSE}
+regresfinal = lm(Salary~NBA_DraftNumber + Age + G + MP + PER + X3PAr + ORB. + 
+    TRB. + USG. + WS + OBPM , data = datos_nba)
+summary(regresfinal)
+```
+
+Finalmente, se ha construido el modelo que con el que se va a intentar predecir. Se puede observar que el R ajustado aumenta, y dado que el metodo StepAIC nos ha dicho que es el mejor, será con el que nos quedemos e intentemos predecir el salario de cada jugador.
+
+## Predicción
+
+```{r echo=FALSE}
+set.seed(1234)
+prediccion <- predict(regresfinal, datos_nba)
+prediccion[sample(1:481,10)]
+```
+
+Ya llegados a este punto, se pone al modelo a predecir. Aplicándole la semilla 1234, selecciona 10 valores y esas son las 10 observaciones que extrae del dataset de forma aleatoria para predecir.
+
+FIN.
